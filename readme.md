@@ -3,7 +3,7 @@
 ## About
 
 This are various tweaks and fix to run Linux on Lenovo Yoga Slim 7. This note is validated on the following configuration
-- Ubuntu 20.04.1
+- Void Linux on 2020-10-03
 - Lenovo Yoga Slim 7 AMD (Ryzen 7)
 
 ## Summary
@@ -14,34 +14,71 @@ Legend:
 - :negative_squared_cross_mark: Not working
 - :question: Unknown
 
-| Feature                      | Status              | Description                                                           |
-| ---------------------------- | ------------------- | --------------------------------------------------------------------- |
-| Power (battery and charging) | :heavy_check_mark:  |                                                                       |
-| Storage                      | :heavy_check_mark:  | Disable bitlocker on windows to access windows partition from Linux   |
-| Graphic                      | :hammer_and_wrench: | Kernel update is required (see [below](#Graphic))                     |
-| USB                          | :heavy_check_mark:  |                                                                       |
-| Keyboard                     | :heavy_check_mark:  |                                                                       |
-| Speakers                     | :heavy_check_mark:  |                                                                       |
-| Microphone                   | :heavy_check_mark:  | It seems there's a bug on kernel 5.7, please use other kernel version |
-| Audio jack                   | :heavy_check_mark:  |                                                                       |
-| Wifi and Bluetooth           | :heavy_check_mark:  |                                                                       |
-| Webcam                       | :heavy_check_mark:  |                                                                       |
-| External display (HDMI)      | :hammer_and_wrench: | Kernel update is required (see [below](#Graphic))                     |
-| Suspend                      | :hammer_and_wrench: | See detail [below](#Suspend)                                          |
+| Feature                      | Status              | Description                                                                      |
+| ---------------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| Power (battery and charging) | :heavy_check_mark:  |                                                                                  |
+| Storage                      | :heavy_check_mark:  | Disable bitlocker on windows to access windows partition from Linux              |
+| Graphic                      | :heavy_check_mark:  |                                                                                  |
+| USB                          | :heavy_check_mark:  |                                                                                  |
+| Keyboard                     | :heavy_check_mark:  |                                                                                  |
+| Speakers                     | :heavy_check_mark:  |                                                                                  |
+| Microphone                   | :hammer_and_wrench: | Have not found a perfect solution yet, but you can record audio without tweaking |
+| Audio jack                   | :heavy_check_mark:  |                                                                                  |
+| Wifi and Bluetooth           | :heavy_check_mark:  |                                                                                  |
+| Webcam                       | :heavy_check_mark:  |                                                                                  |
+| External display (HDMI)      | :heavy_check_mark:  |                                                                                  |
+| Suspend                      | :hammer_and_wrench: | See detail [below](#Suspend)                                                     |
 
 ## Fixes
 
 **DISCLAIMER** I am not responsible for any damage and negative consequences to your system
 
-### Graphic
+### Bootloader
 
-By default Ubuntu 20.04.1 shipped with Linux 5.4, support for AMD 4000 graphics is still experimental on 5.4. To get the best result wait for Ubuntu 20.04.2 or upgrade manually to the latest stable kernel (5.8 by the time of publication).
+Trying to use `efibootmgr` to boot my kernel directly, I ran into some problems. This configuration works:
 
-Some of the ways to upgrade the kernel:
-- https://github.com/pimlie/ubuntu-mainline-kernel.sh
-- https://github.com/bkw777/mainline
+Assuming your root partition is `/dev/nvme0n1p2` and your EFI system partition (esp) is the vfat-formatted partition `/dev/nvme0n1p1`, mount the esp to /boot. This way the UEFI can read the kernel and initrd without needing extra filesystem drivers. Next, configure `efibootmgr` using Voids `/etc/default/efibootmgr-kernel-hook`:
 
-**Note: If you encounter `error: /vmlinux-<version number> has invalid signature.` on boot, you need to disable secure boot on the UEFI setting or follow https://gist.github.com/maxried/796d1f3101b3a03ca153fa09d3af8a11**
+```
+# Options for the kernel hook script installed by the efibootmgr package.
+#MODIFY_EFI_ENTRIES=0
+# To allow efibootmgr to modify boot entries, set
+MODIFY_EFI_ENTRIES=1
+# Kernel command-line options.  Example:
+OPTIONS="root=/dev/nvme0n1p2 quiet"
+# Disk where EFI Partition is.  Default is /dev/sda
+DISK="/dev/nvme0n1"
+# Partition number of EFI Partition.  Default is 1
+PART=1
+```
+
+At the end, run 
+
+```
+root# xbps-reconfigure -f linuxX.Y
+````
+
+replacing *X.Y* with your current kernel version. Now comes the unexpected part: On my system the UEFI wouldn't show me the (according to `efibootmgr`) successfully created boot entry, so I couldn't boot from it. The workaround I found is to set the newly created boot entry as *next boot* using `efibootmgr` once, rebooting and setting it as the default boot entry, like so:
+
+```sh
+root# efibootmgr
+----
+# example output:
+BootCurrent: 0001
+Timeout: 0 seconds
+BootOrder: 2001,2002,2003,0001
+Boot0001* Void Linux with kernel 5.8
+Boot2001* EFI USB Device
+Boot2002* EFI DVD/CDROM
+Boot2003* EFI Network
+----
+root# efibootmgr -n 0001 # set Void Linux entry as next boot
+root# reboot
+----
+# after reboot:
+root# efibootmgr -o 0001,2001,2002,2003 # set Void Linux entry as default boot entry
+```
+Now your system should boot as expected. At least mine does.
 
 ### Suspend
 
@@ -83,129 +120,91 @@ There are three solutions:
 
 All of the following commands assume **root shell** (sudo -i)
 
-```bash
-sudo -i
-```
-
 **1. Get the required tools**
 
 Download and compile from https://www.acpica.org/downloads
-```bash
+```sh
 # Install some required dependencies
-apt install m4 build-essential bison flex
+root# xbps-install m4 build-devel bison flex
 
 # Download and extract
-wget https://acpica.org/sites/acpica/files/acpica-unix-20200717.tar.gz
-tar -xvf acpica-unix-20200717.tar.gz
-cd acpica-unix-20200717
+$ wget https://acpica.org/sites/acpica/files/acpica-unix-20200717.tar.gz
+$ tar -xvf acpica-unix-20200717.tar.gz
+$ cd acpica-unix-20200717
 
 # Make
-make clean
-make
+$ make clean
+$ make -j$(nproc)
 
 # Add to PATH for easy access
-PATH=$PATH:$(realpath ./generate/unix/bin/)
+$ PATH=$PATH:$(realpath ./generate/unix/bin/)
 ```
 
 **2. Dump the ACPI files and decompile the DSDT table**
 
-```bash
+```sh
 # Create new working directory
-mkdir acpi
-cd acpi
+$ mkdir acpi
+$ cd acpi
 
 # Dump acpi table to binary files
-acpidump -b
+root# acpidump -b
 
 # Decompile dsdl.bat with all of the .dat as external symbol
-iasl -e *.dat -d dsdt.dat
+$ iasl -e *.dat -d dsdt.dat
 ```
 
 **3. Apply patch**
 
-Copy dsdt.patch from this repo and patch dsdt.dsl
-```bash
-patch <dsdt.patch
+Copy dsdt.patch from this repo and lid_wakeup.patch [this gist](https://gist.github.com/polikutinevgeny/7d673fe2453d88461ab06edfd7556d14) (Backup in this repo) and patch dsdt.dsl
+```sh
+$ patch <dsdt.patch
+$ patch <lid_wakeup.patch
 ```
 
 **4. Recompile the modified table**
 
-```bash
+```sh
 # Recompile dsdt to new hex asml table (ignore warning)
-iasl -ve -tc dsdt.dsl
+$ iasl -ve -tc dsdt.dsl
 ```
 
 **5. Make override archive**
 ```bash
-mkdir -p kernel/firmware/acpi
-cp dsdt.aml kernel/firmware/acpi
-find kernel | cpio -H newc --create > acpi_s3_override
-
-# Copy to /boot
-cp acpi_s3_override /boot/
+# copy to /boot
+root# cp dsdt.aml /boot/
 ```
 
 **6. Set the default sleep type to S3 (deep)**
 
-Open `etc/default/grub` and add `mem_sleep_default=deep` to `GRUB_CMDLINE_LINUX_DEFAULT` then run `update-grub`
-
-Example:
-```
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash mem_sleep_default=deep"
-```
-
-**7. Set grub to use the override**
-
-Open `etc/default/grub` and add `acpi_s3_override` to `GRUB_EARLY_INITRD_LINUX_CUSTOM` then run `update-grub`
-
-Example:
-```
-GRUB_EARLY_INITRD_LINUX_CUSTOM="acpi_s3_override"
-```
-
-**NOTE**
-
-~~There's seem to be a problem with the default grub package on Ubuntu (https://bugs.launchpad.net/ubuntu/+source/grub2/+bug/1878705) preventing the use of `GRUB_EARLY_INITRD_LINUX_CUSTOM` option. In the meantime, you can either patch the config generator or adding the required modification to grub.cfg manually.~~
-
-The bug is fixed on grub-common 2.04-1ubuntu26.3 :)
-
-However you still need to run `update-grub` to update grub.cfg
-
-Make sure you update your system to the latest version (`apt update && apt upgrade`) and ignore steps below
-
-**Option 1 - Patching the config generator**
-
-(This is no longer necessary, see above)
-
-Download the 10_linux.patch from this repo and move it to `/etc/grub.d`
-```bash
-cd /etc/grub.d
-# Backup original
-cp 10_linux ../10_linux.orig
-
-# Patch
-patch <10_linux.patch
-
-# Update grub
-update-grub
-```
-
-**Option 2 - Manually edit grub.cfg**
-
-(This is no longer necessary, see above)
-
-Open `/boot/grub/grub.cfg` and search for the every line starting with `initrd` followed by initrd image
+Add `mem_sleep_default=deep` to your kernel command line. For grub open `/etc/default/grub` and follow this example:
 
 ```
-initrd /boot/initrd.img-5.8.0-050800-generic
+GRUB_CMDLINE_LINUX_DEFAULT="quiet mem_sleep_default=deep"
 ```
 
-Add `/boot/acpi_s3_override` in the middle
+For efibootmgr open `/etc/default/efibootmgr-kernel-hook` and follow this example:
 
 ```
-initrd /boot/acpi_override /boot/initrd.img-5.8.0-050800-generic
+OPTIONS="quiet mem_sleep_default=deep"
 ```
 
+**7. Add the new ACPI table to the initrd**
+
+Create `/etc/dracut.d/acpi-override` and add the following:
+
+```
+acpi_override="yes"
+acpi_table_dir="/boot"
+```
+
+**8. Reconfigure the kernel package to apply the changes**
+
+Run the following command, but replace the version number *X.Y* with the one that's installed.
+
+```
+root# xbps-reconfigure -f linuxX.Y
+```
 
 ## Thanks
 - @SteveImmanuel for the information regarding microphone on kernel 5.7
