@@ -1,0 +1,23 @@
+Source: https://gist.github.com/polikutinevgeny/7d673fe2453d88461ab06edfd7556d14
+
+--- a/dsdt.dsl	2020-08-25 18:13:11.091416139 +1000
++++ b/dsdt.dsl	2020-08-26 10:59:17.854877511 +1000
+@@ -6993,6 +6993,18 @@
+                 Return (One)
+             }
+ 
++            Method (_PRW, 0, NotSerialized)  // _PRW: Power Resources for Wake
++            {
++                If ((WKPM == One))
++                {
++                    Return (GPRW (0x19, 0x04))
++                }
++                Else
++                {
++                    Return (GPRW (0x19, Zero))
++                }
++            }
++
+             Method (_PSW, 1, NotSerialized)  // _PSW: Power State Wake
+             {
+                 If (^^PCI0.LPC0.ECOK ())
